@@ -1,0 +1,92 @@
+---
+- name: Setup Samba AD DC with Docker
+  become: yes
+  block:
+
+
+    - name: Check if Docker is installed
+      ansible.builtin.command: docker --version
+      register: docker_check
+      failed_when: false
+      changed_when: false
+
+    - name: Installation Docker
+      ansible.builtin.include_tasks: docker.yml
+      when: docker_check.rc != 0
+
+
+    - name: Disable systemd-resolved
+      systemd:
+        name: systemd-resolved
+        enabled: no
+        state: stopped
+    
+    
+    - name: Remove resolv.conf
+      file:
+        path: /etc/resolv.conf
+        state: absent
+
+
+    - name: Set temporary DNS
+      copy:
+        dest: /etc/resolv.conf
+        content: "nameserver 8.8.8.8"
+
+
+
+    - name: Set hostname
+      hostname:
+          name: "{{ inventory_hostname }}"
+
+
+
+    - name: Add hosts entry
+      lineinfile:
+        path: /etc/hosts
+        line: "192.168.1.8 {{ hostname_name }} {{ hostname_name.split('.')[0] }}"
+        create: yes
+
+
+    - name: Create samba directory
+      file:
+        path: "{{ samba_dir }}/data/{{ item }}"
+        state: directory
+        recurse: yes
+      loop:
+        - lib
+        - etc
+        - run
+
+
+    - name: Copy Dockerfile
+      copy:
+        src: Dockerfile
+        dest: "{{ samba_dir }}/Dockerfile"
+
+
+    - name: Copy entrypoint
+      copy:
+        src: entrypoint.sh
+        dest: "{{ samba_dir }}/entrypoint.sh"
+        mode: "0755"
+
+
+    - name: Copy docker-compose
+      copy:
+        src: compose.yml
+        dest: "{{ samba_dir }}/docker-compose.yml"
+
+
+    - name: Build and start samba container
+      command: docker compose up -d --build
+      args:
+        chdir: "{{ samba_dir }}"
+
+    - name: Wait for Samba AD DC to fully initialize
+      command: docker exec samba-ad-dc samba-tool domain info 127.0.0.1
+      register: samba_ready
+      retries: 15
+      delay: 10
+      until: samba_ready.rc == 0
+      changed_when: false

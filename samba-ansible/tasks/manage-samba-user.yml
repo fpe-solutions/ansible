@@ -1,0 +1,20 @@
+---
+- name: Manage Samba Users
+  become: yes
+  block:
+
+
+  - name: Create users
+    command: >
+      docker exec samba-ad-dc samba-tool user create {{ username }} {{ password }}
+      --given-name=Ali
+      --surname=Ahmadi
+      --mail-address={{ username }}@fpe.local
+
+
+  - name: Create group
+    command: docker exec samba-ad-dc samba-tool group add {{ group }}
+
+
+  - name: Add user to group
+    command: docker exec samba-ad-dc samba-tool group addmembers {{ group }} {{ username }}

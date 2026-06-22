@@ -1,0 +1,55 @@
+# -------------------------------------------------
+# Ask group action
+# -------------------------------------------------
+- name: Ask Preparing Action
+  pause:
+    prompt: |
+      ===================================
+      Select Type of Node:
+
+      1. Install Samba
+      2. Test Samba 
+      3. Manage Samba users
+      4. Samba DNS Cleanup
+      5. Exit
+
+      Choose action (1-4):
+  register: type_node
+
+- name: Set action fact
+  set_fact:
+    group_action: "{{ type_node.user_input | trim }}"
+
+# -----------------------------
+# Starting Preparing Based On Node
+# -----------------------------
+- name: Preparing Setup Samba
+  ansible.builtin.include_tasks: setup-samba.yml
+  when: type_node.user_input | trim == '1'
+
+- name: Preparing Test Samba
+  ansible.builtin.include_tasks: test-samba.yml
+  when: type_node.user_input | trim == '2'
+
+- name: Preparing Manage Samba User
+  ansible.builtin.include_tasks: manage-samba-user.yml
+  when: type_node.user_input | trim == '3'
+
+- name: Preparing Samba DNS Cleanup
+  ansible.builtin.include_tasks: samba-dns-cleanup.yml
+  when: type_node.user_input | trim == '4'
+
+- name: Exit
+  debug:
+    msg: "Goodbye!"
+  when: type_node.user_input | trim == '5'
+
+- meta: end_play
+  when: type_node.user_input | trim == ''
+
+  vars:
+    operation_map:
+      '1': 'bastion'
+      '2': 'master'
+      '3': 'worker'
+      '4': 'exit'

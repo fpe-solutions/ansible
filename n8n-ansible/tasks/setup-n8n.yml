@@ -1,0 +1,124 @@
+---
+- name: Setup n8n with Docker
+  become: yes
+  block:
+
+
+    - name: Check if Docker is installed
+      ansible.builtin.command: docker --version
+      register: docker_check
+      failed_when: false
+      changed_when: false
+
+    - name: Installation Docker
+      ansible.builtin.include_tasks: docker.yml
+      when: docker_check.rc != 0
+
+
+    - name: Remove resolv.conf
+      file:
+        path: /etc/resolv.conf
+        state: absent
+
+
+    - name: Set temporary DNS
+      copy:
+        dest: /etc/resolv.conf
+        content: "nameserver 8.8.8.8"
+
+
+
+    - name: Set hostname
+      hostname:
+          name: "{{ inventory_hostname }}"
+
+
+    - name: Add hosts entry
+      lineinfile:
+        path: /etc/hosts
+        line: "192.168.1.8 {{ hostname_name }} {{ hostname_name.split('.')[0] }}"
+        create: yes
+
+
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - python3-pip
+        state: present
+
+
+    - name: Install Docker Python library
+      pip:
+        name:
+          - docker
+          - docker-compose
+        state: present
+
+
+    - name: Create n8n directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+        owner: 1000
+        group: 1000
+      loop:
+        - /root/n8n
+        - "{{ n8n_data_path }}"
+
+    - name: Create python runner directory
+      file:
+        path: /root/n8n/python-runner
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Create python runner Dockerfile
+      template:
+        src: /root/n8n-ansible/templates/python-runner.Dockerfile.j2
+        dest: /root/n8n/python-runner/Dockerfile
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Create python runner app file
+      template:
+        src: /root/n8n-ansible/templates/app.py.j2
+        dest: /root/n8n/python-runner/app.py
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Create .env file
+      template:
+        src: /root/n8n-ansible/templates/env.j2
+        dest: /root/n8n/.env
+        mode: '0600'
+
+    - name: Create docker-compose file
+      template:
+        src: /root/n8n-ansible/templates/docker-compose.yml.j2
+        dest: /root/n8n/docker-compose.yml
+        mode: '0644'
+
+    - name: Build and start n8n container
+      command: docker compose up -d --build
+      args:
+        chdir: /root/n8n
+      register: docker_compose_result
+
+    - name: Display n8n information
+      debug:
+        msg:
+          - "n8n has been deployed successfully!"
+          - "Access URL: http://{{ ansible_host }}:{{ n8n_port }}"
+          - "Username: {{ n8n_basic_auth_user }}"
+          - "Password: {{ n8n_basic_auth_password }}"
+          - "Data directory: {{ n8n_data_path }}"
+          - "Python is installed inside the custom n8n container."

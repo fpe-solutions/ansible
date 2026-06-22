@@ -1,0 +1,16 @@
+---
+- name: Base configuration & installation
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - defaults/main.yml
+
+  pre_tasks:
+    - name: Welcome
+      debug:
+        msg: "✨✨✨✨✨✨✨✨✨✨ We’re here to help you set up your server ✨✨✨✨✨✨✨✨✨✨"
+
+  tasks:
+    - include_tasks: tasks/ask.yml
+    - include_tasks: tasks/samba-dns-cleanup.yml

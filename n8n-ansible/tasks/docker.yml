@@ -1,0 +1,64 @@
+---
+- name: Install Docker Engine (official repo)
+  become: true
+  block:
+    # -----------------------------
+    # Add Docker GPG key
+    # -----------------------------
+    #- name: Create keyrings directory
+    #  ansible.builtin.file:
+    #    path: /etc/apt/keyrings
+    #    state: directory
+    #    mode: "0755"
+
+    #- name: Download Docker GPG key
+    #  ansible.builtin.get_url:
+    #    url: "{{ repos.docker_gpg }}/{{ ansible_distribution | lower }}/gpg"
+    #    dest: /etc/apt/keyrings/docker.asc
+    #    mode: "0644"
+
+    - name: Get architecture
+      command: dpkg --print-architecture
+      register: architecture
+
+    - name: Add Docker APT repository
+      ansible.builtin.apt_repository:
+        repo: >
+          deb [arch={{ architecture.stdout }}
+          signed-by=/etc/apt/keyrings/docker.asc]
+          {{ repos.docker_package }}
+          {{ ansible_distribution_release }} stable
+        filename: docker
+        state: present
+
+    # -----------------------------
+    # Install Docker packages
+    # -----------------------------
+    - name: Install Docker packages
+      ansible.builtin.apt:
+        name:
+          #- docker-ce
+          #- docker-ce-cli
+          #- containerd.io
+          #- docker-buildx-plugin
+          - docker-compose-v2
+        state: present
+        # update_cache: yes
+
+    # -----------------------------
+    # Ensure Docker is running
+    # -----------------------------
+    - name: Enable and start Docker service
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    # -----------------------------
+    # Add user to docker group
+    # -----------------------------
+    - name: Add config user to docker group
+      ansible.builtin.user:
+        name: "{{ custom_vars.user }}"
+        groups: docker
+        append: true

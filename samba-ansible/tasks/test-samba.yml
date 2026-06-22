@@ -1,0 +1,31 @@
+---
+- name: Test Samba AD
+  become: yes
+  block:
+
+
+  - name: Test kerberos SRV
+    command: docker exec samba-ad-dc host -t SRV _kerberos._udp.fpe.local
+    register: kerberos_test
+
+
+  - debug:
+      var: kerberos_test.stdout
+
+
+  - name: Domain info
+    command: docker exec samba-ad-dc samba-tool domain info 192.168.1.8
+    register: domain_info
+
+
+  - debug:
+      var: domain_info.stdout
+
+
+  - name: List user
+    command: docker exec samba-ad-dc samba-tool user list
+    register: user_list
+
+
+  - debug:
+      var: user_list.stdout

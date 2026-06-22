@@ -1,0 +1,45 @@
+version: '3.8'
+
+networks:
+  web_net:
+    external: true
+    name: web_net
+
+services:
+  n8n:
+    image: n8nio/n8n:{{ n8n_version }}
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "{{ n8n_port }}:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE}
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+      - N8N_PROTOCOL=${N8N_PROTOCOL}
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=${N8N_PORT}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - EXECUTIONS_PROCESS=${EXECUTIONS_PROCESS}
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=${EXECUTIONS_DATA_SAVE_ON_ERROR}
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=${EXECUTIONS_DATA_SAVE_ON_SUCCESS}
+      - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=${EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS}
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - {{ n8n_data_path }}:/home/node/.n8n
+      - /root/n8n/scripts:/scripts
+    networks:
+      - web_net
+
+  python_runner:
+    build:
+      context: /root/n8n/python-runner
+      dockerfile: Dockerfile
+    image: custom-python-runner:latest
+    container_name: python-runner
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    networks:
+      - web_net

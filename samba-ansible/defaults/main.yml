@@ -1,0 +1,65 @@
+---
+# User for deploy
+custom_vars:
+  user: deploy
+  group: devops
+  timezone: Etc/UTC
+  work_dir: "/opt/infra"
+
+# Network  Interface Vars
+network:
+  interface: "ens3"
+  address: "192.168.10.7/24"
+  gateway: "192.168.10.254"
+  dns: "8.8.8.8"
+
+
+# Samba configuration
+samba_dir: /root/samba-dc
+hostname_name: fpe-samba
+
+domain: FPE
+realm: FPE.LOCAL
+
+dns_forwarder: 8.8.8.8
+server_ip: 192.168.10.7
+
+admin_password: "Energy1361FPE"
+
+username: r.esfandiari
+password: "123456Aa"
+group: FPE
+
+
+# Repository Addresses
+repos:
+  apt_package: "http://pbr.amertka.com/ubuntu"
+  docker_package: "https://pbr.amertka.com/linux/ubuntu"
+  docker_gpg: "https://pbr.amertka.com/rawhub/"
+  registry: https://pcr.amertka.com
+
+# Required Packages
+packages:
+  - vim
+  - util-linux
+  - sudo
+  - gnupg
+  - curl
+  - dnsutils
+  - unzip
+  - ca-certificates
+  
+# Register Static Records In /etc/hosts
+hosts:
+  file-ubuntu-server: "192.168.10.7"
+
+service_vars:
+  filebeat:
+    version: 9.3.1
+  cadvisor:
+    version:
+  fluentd:
+    version:
+  node_exporter:
+    version:
+  network_docker: infra_net

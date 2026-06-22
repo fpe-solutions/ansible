@@ -1,0 +1,75 @@
+- name: Wait for Samba to start
+  pause:
+    seconds: 15
+
+########################################
+## Root DNS cleanup
+#########################################
+
+
+- name: Get root DNS A records
+  shell: >
+    docker exec samba-ad-dc
+    samba-tool dns query 127.0.0.1 fpe.local @ A -P
+  register: root_dns_records
+
+
+- name: Get root DNS A records
+  shell: >
+    docker exec samba-ad-dc
+    samba-tool dns query 127.0.0.1 fpe.local @ A -P
+  register: root_dns_records
+
+- name: Extract root A record IPs
+  set_fact:
+    root_dns_ips: "{{ root_dns_records.stdout | regex_findall('A:\\s+([0-9\\.]+)') }}"
+
+- name: Remove wrong root DNS records
+  shell: >
+    docker exec samba-ad-dc
+    samba-tool dns delete 127.0.0.1 fpe.local @ A {{ item }} -P
+  loop: "{{ root_dns_ips }}"
+  when: item != server_ip
+  ignore_errors: yes
+
+
+########################################
+## Hostname DNS cleanup
+########################################
+
+
+- name: Get hostname DNS A records
+  shell: >
+    docker exec samba-ad-dc
+    samba-tool dns query 127.0.0.1 fpe.local fpe-samba A -P
+  register: host_dns_records
+
+- name: Extract hostname A record IPs
+  set_fact:
+    host_dns_ips: "{{ host_dns_records.stdout | regex_findall('A:\\s+([0-9\\.]+)') }}"
+
+- name: Remove wrong hostname DNS records
+  shell: >
+    docker exec samba-ad-dc
+    samba-tool dns delete 127.0.0.1 fpe.local fpe-samba A {{ item }} -P
+  loop: "{{ host_dns_ips }}"
+  when: item != server_ip
+  ignore_errors: yes
+
+
+########################################
+## Ensure correct records exist
+########################################
+
+
+- name: Ensure correct root DNS record exists
+  shell: >
+    docker exec samba-ad-dc
+    samba-tool dns add 127.0.0.1 fpe.local @ A {{ server_ip }} -P
+  ignore_errors: yes
+
+- name: Ensure correct hostname DNS record exists
+  shell: >
+    docker exec samba-ad-dc
+    samba-tool dns add 127.0.0.1 fpe.local fpe-samba A {{ server_ip }} -P
+  ignore_errors: yes
