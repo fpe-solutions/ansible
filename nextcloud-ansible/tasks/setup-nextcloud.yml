@@ -1,0 +1,84 @@
+---
+- name: Setup Samba AD DC with Docker
+  become: yes
+  block:
+
+
+    - name: Check if Docker is installed
+      ansible.builtin.command: docker --version
+      register: docker_check
+      failed_when: false
+      changed_when: false
+
+    - name: Installation Docker
+      ansible.builtin.include_tasks: docker.yml
+      when: docker_check.rc != 0
+
+
+    - name: Disable systemd-resolved
+      systemd:
+        name: systemd-resolved
+        enabled: no
+        state: stopped
+    
+    
+    - name: Remove resolv.conf
+      file:
+        path: /etc/resolv.conf
+        state: absent
+
+
+    - name: Set temporary DNS
+      copy:
+        dest: /etc/resolv.conf
+        content: "nameserver 8.8.8.8"
+
+
+
+    - name: Set hostname
+      hostname:
+          name: "{{ inventory_hostname }}"
+
+
+
+    - name: Add hosts entry
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ ip }} {{ hostname_name }} {{ hostname_name.split('.')[0] }}"
+        create: yes
+
+
+    - name: Create nextcloud directory
+      file:
+        path: "{{ nextcloud_dir }}/data/{{ item }}"
+        state: directory
+        recurse: yes
+      loop:
+        - lib
+        - etc
+        - run
+
+
+    - name: Copy Dockerfile
+      copy:
+        src: Dockerfile
+        dest: "{{ nextcloud_dir }}/Dockerfile"
+
+
+    - name: Copy entrypoint
+      copy:
+        src: entrypoint.sh
+        dest: "{{ nextcloud_dir }}/entrypoint.sh"
+        mode: "0755"
+
+
+    - name: Copy docker-compose
+      copy:
+        src: compose.yml
+        dest: "{{ nextcloud_dir }}/compose.yml"
+
+
+    - name: Build and start nextcloud container
+      command: docker compose up -d --build
+      args:
+        chdir: "{{ nextcloud_dir }}"

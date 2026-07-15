@@ -1,0 +1,366 @@
+---
+- name: Install base packages
+  apt:
+    name:
+      - curl
+      - wget
+      - unzip
+      - rsyslog
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - software-properties-common
+    state: present
+    update_cache: true
+
+- name: Create remote log root
+  file:
+    path: "{{ remote_log_root }}"
+    state: directory
+    owner: syslog
+    group: adm
+    mode: "0755"
+
+- name: Configure rsyslog server
+  copy:
+    dest: /etc/rsyslog.d/49-remote.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      module(load="imudp")
+      module(load="imtcp")
+
+      input(type="imudp" port="{{ rsyslog_udp_port }}")
+      input(type="imtcp" port="{{ rsyslog_tcp_port }}")
+
+      $template RemoteLogs,"{{ remote_log_root }}/%HOSTNAME%/%PROGRAMNAME%.log"
+      *.* ?RemoteLogs
+      & stop
+  register: rsyslog_config
+
+- name: Ensure rsyslog is enabled
+  systemd:
+    name: rsyslog
+    state: started
+    enabled: true
+
+- name: Restart rsyslog if config changed
+  systemd:
+    name: rsyslog
+    state: restarted
+    enabled: true
+  when: rsyslog_config.changed
+
+- name: Create loki user
+  user:
+    name: loki
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Create loki directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: loki
+    group: loki
+    mode: "0755"
+  loop:
+    - /etc/loki
+    - /var/lib/loki
+    - /var/lib/loki/chunks
+    - /var/lib/loki/index
+    - /var/lib/loki/rules
+    - /var/lib/loki/boltdb-cache
+
+- name: Download loki
+  get_url:
+    url: "https://github.com/grafana/loki/releases/download/v{{ loki_version }}/loki-linux-amd64.zip"
+    dest: /tmp/loki-linux-amd64.zip
+    mode: "0644"
+
+- name: Extract loki
+  unarchive:
+    src: /tmp/loki-linux-amd64.zip
+    dest: /tmp/
+    remote_src: true
+
+- name: Install loki binary
+  copy:
+    src: /tmp/loki-linux-amd64
+    dest: /usr/local/bin/loki
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  register: loki_binary
+
+- name: Configure loki
+  copy:
+    dest: /etc/loki/config.yml
+    owner: loki
+    group: loki
+    mode: "0644"
+    content: |
+      auth_enabled: false
+
+      server:
+        http_listen_port: {{ loki_port }}
+
+      common:
+        path_prefix: /var/lib/loki
+        replication_factor: 1
+        ring:
+          kvstore:
+            store: inmemory
+
+      schema_config:
+        configs:
+          - from: 2024-01-01
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: index_
+              period: 24h
+
+      storage_config:
+        filesystem:
+          directory: /var/lib/loki/chunks
+
+      ruler:
+        alertmanager_url: http://127.0.0.1:9093
+
+      limits_config:
+        allow_structured_metadata: false
+
+      analytics:
+        reporting_enabled: false
+  register: loki_config
+
+- name: Create loki service
+  copy:
+    dest: /etc/systemd/system/loki.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Loki
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      User=loki
+      Group=loki
+      Type=simple
+      ExecStart=/usr/local/bin/loki -config.file=/etc/loki/config.yml
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+  register: loki_service
+
+- name: Ensure loki is enabled
+  systemd:
+    name: loki
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Restart loki if needed
+  systemd:
+    name: loki
+    state: restarted
+    enabled: true
+    daemon_reload: true
+  when: loki_binary.changed or loki_config.changed or loki_service.changed
+
+- name: Create promtail user
+  user:
+    name: promtail
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    groups: syslog
+    append: true
+
+- name: Create promtail directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: promtail
+    group: promtail
+    mode: "0755"
+  loop:
+    - /etc/promtail
+    - /var/lib/promtail
+
+- name: Download promtail
+  get_url:
+    url: "https://github.com/grafana/loki/releases/download/v{{ promtail_version }}/promtail-linux-amd64.zip"
+    dest: /tmp/promtail-linux-amd64.zip
+    mode: "0644"
+
+- name: Extract promtail
+  unarchive:
+    src: /tmp/promtail-linux-amd64.zip
+    dest: /tmp/
+    remote_src: true
+
+- name: Install promtail binary
+  copy:
+    src: /tmp/promtail-linux-amd64
+    dest: /usr/local/bin/promtail
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  register: promtail_binary
+
+- name: Configure promtail
+  copy:
+    dest: /etc/promtail/config.yml
+    owner: promtail
+    group: promtail
+    mode: "0644"
+    content: |
+      server:
+        http_listen_port: {{ promtail_http_port }}
+        grpc_listen_port: 0
+
+      positions:
+        filename: /var/lib/promtail/positions.yaml
+
+      clients:
+        - url: {{ loki_push_url }}
+
+      scrape_configs:
+        - job_name: rsyslog-remote
+          static_configs:
+            - targets:
+                - localhost
+              labels:
+                job: rsyslog-remote
+                __path__: {{ remote_log_root }}/*/*.log
+  register: promtail_config
+
+- name: Create promtail service
+  copy:
+    dest: /etc/systemd/system/promtail.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Promtail
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      User=promtail
+      Group=promtail
+      Type=simple
+      ExecStart=/usr/local/bin/promtail -config.file=/etc/promtail/config.yml
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+  register: promtail_service
+
+- name: Ensure promtail is enabled
+  systemd:
+    name: promtail
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Restart promtail if needed
+  systemd:
+    name: promtail
+    state: restarted
+    enabled: true
+    daemon_reload: true
+  when: promtail_binary.changed or promtail_config.changed or promtail_service.changed
+
+- name: Ensure apt keyring directory exists
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Add Grafana GPG key
+  shell: |
+    curl -fsSL https://apt.grafana.com/gpg.key | gpg --dearmor -o /etc/apt/keyrings/grafana.gpg
+  args:
+    creates: /etc/apt/keyrings/grafana.gpg
+
+- name: Add Grafana repository
+  copy:
+    dest: /etc/apt/sources.list.d/grafana.list
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main
+
+- name: Install grafana
+  apt:
+    name: grafana
+    state: present
+    update_cache: true
+
+- name: Configure grafana port
+  lineinfile:
+    path: /etc/grafana/grafana.ini
+    regexp: '^;?http_port ='
+    line: "http_port = {{ grafana_port }}"
+  register: grafana_config
+
+- name: Ensure grafana is enabled
+  systemd:
+    name: grafana-server
+    state: started
+    enabled: true
+
+- name: Restart grafana if config changed
+  systemd:
+    name: grafana-server
+    state: restarted
+    enabled: true
+  when: grafana_config.changed
+
+- name: Wait for Loki
+  wait_for:
+    host: 127.0.0.1
+    port: "{{ loki_port }}"
+    timeout: 60
+
+- name: Wait for Grafana
+  wait_for:
+    host: 127.0.0.1
+    port: "{{ grafana_port }}"
+    timeout: 60
+
+- name: Add Loki datasource
+  uri:
+    url: "http://127.0.0.1:{{ grafana_port }}/api/datasources"
+    method: POST
+    user: admin
+    password: admin
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: Loki
+      type: loki
+      access: proxy
+      url: "http://127.0.0.1:{{ loki_port }}"
+      isDefault: true
+    status_code:
+      - 200
+      - 409

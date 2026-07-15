@@ -1,0 +1,30 @@
+---
+- name: Install required system packages
+  apt:
+    name:
+      - curl
+      - tar
+      - wget
+      - python3-pip
+    state: present
+    update_cache: yes
+
+- name: Ensure Docker config directory exists
+  file:
+    path: /etc/docker
+    state: directory
+    mode: '0755'
+
+- name: Configure Docker daemon (Insecure Registry & Mirrors)
+  template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    mode: '0644'
+  register: docker_config
+
+- name: Restart Docker if config changed
+  systemd:
+    name: docker
+    state: restarted
+    daemon_reload: yes
+  when: docker_config.changed

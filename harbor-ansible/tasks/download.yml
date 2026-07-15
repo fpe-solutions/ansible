@@ -1,0 +1,20 @@
+---
+- name: Create installation directory for Harbor
+  file:
+    path: /root/harbor_install
+    state: directory
+    mode: '0755'
+
+- name: Download Harbor Offline Installer v2.10.0
+  get_url:
+    url: https://github.com/goharbor/harbor/releases/download/v2.10.0/harbor-offline-installer-v2.10.0.tgz
+    dest: /root/harbor_install/harbor-offline-installer-v2.10.0.tgz
+    mode: '0644'
+  register: download_archive
+
+- name: Extract Harbor Installer
+  unarchive:
+    src: /root/harbor_install/harbor-offline-installer-v2.10.0.tgz
+    dest: /root/harbor_install/
+    remote_src: yes
+  when: download_archive.changed

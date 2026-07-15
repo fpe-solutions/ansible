@@ -1,0 +1,9 @@
+---
+- name: Run Grafana stack tasks
+  import_tasks: grafana-stack.yml
+
+- name: Run Prometheus tasks
+  import_tasks: prometheus.yml
+
+- name: Show Access Information
+  import_tasks: access-info.yml

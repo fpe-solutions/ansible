@@ -1,0 +1,60 @@
+---
+- name: Setup Harbor with Docker
+  become: yes
+  block:
+
+
+    - name: Check if Docker is installed
+      ansible.builtin.command: docker --version
+      register: docker_check
+      failed_when: false
+      changed_when: false
+
+    - name: Installation Docker
+      ansible.builtin.include_tasks: docker.yml
+      when: docker_check.rc != 0
+
+
+    - name: Disable systemd-resolved
+      systemd:
+        name: systemd-resolved
+        enabled: no
+        state: stopped
+    
+    
+    - name: Remove resolv.conf
+      file:
+        path: /etc/resolv.conf
+        state: absent
+
+
+    - name: Set temporary DNS
+      copy:
+        dest: /etc/resolv.conf
+        content: "nameserver 8.8.8.8"
+
+
+
+    - name: Set hostname
+      hostname:
+          name: "{{ inventory_hostname }}"
+
+
+
+    - name: Add hosts entry
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ ip }} {{ hostname_name }} {{ hostname_name.split('.')[0] }}"
+        create: yes
+
+    - name: Sub-task 1 - Install Prerequisites and Docker Configuration
+      include_tasks: prerequisites.yml
+
+    - name: Sub-task 2 - Download and Extract Harbor Offline Installer
+      include_tasks: download.yml
+    
+    - name: Sub-task 3 - Generate Configurations (harbor.yml & daemon.json)
+      include_tasks: configure.yml
+    
+    - name: Sub-task 4 - Run Installer and Start Services
+      include_tasks: start.yml

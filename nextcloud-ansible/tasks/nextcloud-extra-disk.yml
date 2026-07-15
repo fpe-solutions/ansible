@@ -1,0 +1,81 @@
+---
+# 1. Gather hardware facts to check the current disk state
+- name: Gather facts about system storage
+  ansible.builtin.setup:
+    gather_subset:
+      - hardware
+
+# 2. Check if the target disk already has partitions configured
+- name: Check if /dev/sdb has any existing partitions
+  ansible.builtin.set_fact:
+    has_partitions: "{{ ansible_facts['devices']['sdb']['partitions'] | length > 0 }}"
+  when: ansible_facts['devices']['sdb'] is defined
+
+# 3. Check for existing filesystem signature on the raw disk
+- name: Check for existing filesystem on /dev/sdb
+  ansible.builtin.command: "blkid /dev/sdb"
+  register: blkid_result
+  failed_when: false
+  changed_when: false
+
+# 4. Show block devices configuration (lsblk) before failing if safety checks fail
+- name: List block devices for user inspection (lsblk)
+  ansible.builtin.command: lsblk
+  register: lsblk_output
+  changed_when: false
+  when: (has_partitions | default(false)) or (blkid_result.rc == 0)
+
+# 5. Print the lsblk output to the console
+- name: Display current system disks
+  ansible.builtin.debug:
+    msg: "{{ lsblk_output.stdout_lines }}"
+  when: (has_partitions | default(false)) or (blkid_result.rc == 0)
+
+# 6. Halt execution with a clear error message
+- name: Abort execution because the disk is not empty
+  ansible.builtin.fail:
+    msg: "Safety Check Failed: /dev/sdb already contains a partition table or filesystem signature. Please check the 'lsblk' output above and change the target disk if necessary."
+  when: (has_partitions | default(false)) or (blkid_result.rc == 0)
+
+# 7. Create a single partition on /dev/sdb spanning the entire disk
+- name: Create a single partition on /dev/sdb
+  ansible.builtin.parted:
+    device: /dev/sdb
+    number: 1
+    state: present
+    fs_type: ext4
+
+# 8. Format the partition /dev/sdb1 with ext4 filesystem
+- name: Format /dev/sdb1 partition with ext4
+  community.general.filesystem:
+    fstype: ext4
+    dev: /dev/sdb1
+
+# 9. Gather facts again to capture the newly created partition UUID
+- name: Refresh hardware facts to retrieve new UUID
+  ansible.builtin.setup:
+    gather_subset:
+      - hardware
+
+# 10. Extract UUID for /dev/sdb1 from gathered facts
+- name: Get UUID of /dev/sdb1
+  ansible.builtin.set_fact:
+    sdb1_uuid: "{{ ansible_facts['devices']['sdb']['partitions']['sdb1']['uuid'] }}"
+
+# 11. Ensure the target mount directory exists
+- name: Ensure target directory exists for Nextcloud data volume
+  ansible.builtin.file:
+    path: /var/lib/docker/volumes/nextcloud_nextcloud_data/_data/
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# 12. Add UUID to /etc/fstab and mount the directory (performs mount -a automatically)
+- name: Mount the partition using UUID and update /etc/fstab
+  ansible.builtin.mount:
+    path: /var/lib/docker/volumes/nextcloud_nextcloud_data/_data/
+    src: "UUID={{ sdb1_uuid }}"
+    fstype: ext4
+    opts: defaults
+    state: mounted

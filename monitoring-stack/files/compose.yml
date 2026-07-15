@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  samba-ad-dc:
+    build: .
+    container_name: samba-ad-dc
+    hostname: fpe-samba
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+
+    environment:
+      SAMBA_REALM: FPE.LOCAL
+      SAMBA_DOMAIN: FPE
+      SAMBA_ADMIN_PASSWORD: "Admin@12345"
+      SAMBA_DNS_FORWARDER: 8.8.8.8
+      SAMBA_LAN_IP: "{{ server_ip }}"
+
+    volumes:
+      - samba_lib:/var/lib/samba
+      - samba_etc:/etc/samba
+      - samba_run:/var/run/samba
+      - samba_shares:/shares
+
+volumes:
+  samba_lib:
+  samba_etc:
+  samba_run:
+  samba_shares:

@@ -1,0 +1,42 @@
+services:
+  bind9:
+    image: "{{ dns_image }}"
+    container_name: "{{ dns_container_name }}"
+    hostname: "{{ dns_container_name }}"
+    restart: always
+    user: root # Run container as root to bypass potential permission issues
+
+    ports:
+      - "{{ dns_listen_ip }}:53:53/tcp"
+      - "{{ dns_listen_ip }}:53:53/udp"
+
+    environment:
+      TZ: "{{ dns_timezone }}" # Set to UTC as requested
+      BIND9_USER: "root" # Ensure BIND runs as root inside container
+
+    volumes:
+      # Read-only config files
+      - "{{ dns_docker_project_dir }}/config/named.conf.options:/etc/bind/named.conf.options:ro"
+      - "{{ dns_docker_project_dir }}/config/named.conf.local:/etc/bind/named.conf.local:ro"
+      # Writable volumes for zone data and cache
+      - "{{ dns_docker_project_dir }}/records:/var/lib/bind" # Primary writes zone files here
+      - "{{ dns_docker_project_dir }}/cache:/var/cache/bind" # Secondary writes transferred zones here
+
+    healthcheck:
+      test: ["CMD-SHELL", "named-checkconf /etc/bind/named.conf && pidof named >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ dns_container_cpu_limit }}"
+          memory: "{{ dns_container_memory_limit }}"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

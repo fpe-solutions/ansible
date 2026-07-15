@@ -1,0 +1,45 @@
+# -------------------------------------------------
+# Ask group action
+# -------------------------------------------------
+- name: Ask Preparing Action
+  pause:
+    prompt: |
+      ===================================
+      Select Type of Node:
+
+      1. Install Nextcloud
+      2. Config extra disk
+      3. Exit
+
+      Choose action (1-4):
+  register: type_node
+
+- name: Set action fact
+  set_fact:
+    group_action: "{{ type_node.user_input | trim }}"
+
+# -----------------------------
+# Starting Preparing Based On Node
+# -----------------------------
+- name: Preparing Setup Nextcloud
+  ansible.builtin.include_tasks: setup-nextcloud.yml
+  when: type_node.user_input | trim == '1'
+
+- name: Preparing Setup Nextcloud
+  ansible.builtin.include_tasks: nextcloud-extra-disk.yml
+  when: type_node.user_input | trim == '2'
+
+- name: Exit
+  debug:
+    msg: "Goodbye!"
+  when: type_node.user_input | trim == '3'
+
+- meta: end_play
+  when: type_node.user_input | trim == ''
+
+  vars:
+    operation_map:
+      '1': 'bastion'
+      '2': 'master'
+      '3': 'worker'
+      '4': 'exit'

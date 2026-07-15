@@ -1,0 +1,29 @@
+{% if dns_is_primary %}
+zone "{{ dns_zone_name }}" {
+    type master;
+    file "/var/lib/bind/{{ dns_zone_file }}";
+    allow-transfer { {{ dns_secondary_ip }}; };
+    also-notify { {{ dns_secondary_ip }}; };
+};
+
+zone "{{ dns_reverse_zone_name }}" {
+    type master;
+    file "/var/lib/bind/{{ dns_reverse_zone_file }}";
+    allow-transfer { {{ dns_secondary_ip }}; };
+    also-notify { {{ dns_secondary_ip }}; };
+};
+{% else %}
+zone "{{ dns_zone_name }}" {
+    type slave;
+    file "/var/cache/bind/{{ dns_zone_file }}";
+    masters { {{ dns_primary_ip }}; };
+    allow-query { any; };
+};
+
+zone "{{ dns_reverse_zone_name }}" {
+    type slave;
+    file "/var/cache/bind/{{ dns_reverse_zone_file }}";
+    masters { {{ dns_primary_ip }}; };
+    allow-query { any; };
+};
+{% endif %}

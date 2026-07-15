@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  db:
+    image: docker.arvancloud.ir/mariadb:latest
+    container_name: nextcloud-db
+    restart: unless-stopped
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    environment:
+      - MYSQL_ROOT_PASSWORD=Ammighorbani12
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=Ammighorbani12
+    volumes:
+      - db_data:/var/lib/mysql
+
+  app:
+    image: docker.arvancloud.ir/nextcloud:latest
+    container_name: nextcloud-app
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    links:
+      - db
+    depends_on:
+      - db
+    environment:
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=Ammighorbani12
+      - MYSQL_HOST=db
+    volumes:
+      - nextcloud_data:/var/www/html
+
+volumes:
+  db_data:
+  nextcloud_data:

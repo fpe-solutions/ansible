@@ -1,0 +1,11 @@
+---
+- name: Generate harbor.yml from template
+  template:
+    src: harbor.yml.j2
+    dest: /root/harbor_install/harbor/harbor.yml
+    mode: '0640'
+
+- name: Run Harbor prepare script to generate Compose files
+  command: ./prepare
+  args:
+    chdir: /root/harbor_install/harbor/

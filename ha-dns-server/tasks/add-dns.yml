@@ -1,0 +1,219 @@
+---
+- name: DNS | Ensure adding records only on primary server
+  ansible.builtin.fail:
+    msg: "Adding DNS records is only allowed on the primary server (IP: {{ dns_primary_ip }})."
+  when: not dns_is_primary
+
+- name: DNS | Prompt for the number of new records
+  ansible.builtin.pause:
+    prompt: "How many new DNS records do you want to add? "
+  register: num_records_input
+  changed_when: false
+
+- name: DNS | Validate number of records
+  ansible.builtin.set_fact:
+    dns_new_records_count: "{{ num_records_input.user_input | int }}"
+  when: num_records_input.user_input | regex_match('^[0-9]+$')
+  failed_when: false
+
+- name: DNS | Fail if record count is invalid
+  ansible.builtin.fail:
+    msg: "Invalid number of records. Please enter a positive integer."
+  when:
+    - not (dns_new_records_count is defined and dns_new_records_count >= 0)
+
+- name: DNS | Initialize list for new records
+  ansible.builtin.set_fact:
+    new_dns_records: []
+    new_ptr_records: []
+
+# Loop to gather records
+- name: DNS | Add DNS record (A and PTR) - Loop
+  loop: "{{ range(0, dns_new_records_count | int) | list }}"
+  loop_control:
+    loop_var: item_index
+  block:
+    - name: DNS | Prompt for FQDN for record {{ item_index + 1 }}
+      ansible.builtin.pause:
+        prompt: "Enter FQDN for record {{ item_index + 1 }} (e.g., server.{{ dns_zone_name }}): "
+      register: fqdn_input
+
+    - name: DNS | Validate FQDN format and zone membership
+      ansible.builtin.set_fact:
+        record_fqdn: "{{ fqdn_input.user_input }}"
+      when:
+        - fqdn_input.user_input | trim != ""
+        - fqdn_input.user_input | regex_search('^(.+\.)*' + dns_zone_name + '$') # Basic FQDN check
+      failed_when: false # Let the next task fail if invalid
+
+    - name: DNS | Fail if FQDN is invalid or not in zone
+      ansible.builtin.fail:
+        msg: "Invalid FQDN '{{ fqdn_input.user_input }}'. It must be a valid FQDN and belong to the '{{ dns_zone_name }}' zone."
+      when: record_fqdn is not defined
+
+    - name: DNS | Prompt for IP Address for FQDN {{ record_fqdn }}
+      ansible.builtin.pause:
+        prompt: "Enter IP Address for {{ record_fqdn }}: "
+      register: ip_input
+
+    - name: DNS | Validate IP Address
+      ansible.builtin.set_fact:
+        record_ip: "{{ ip_input.user_input }}"
+      when:
+        - ip_input.user_input | trim != ""
+        - ip_input.user_input | ipaddr # Ansible's built-in IP validation
+      failed_when: false
+
+    - name: DNS | Fail if IP Address is invalid
+      ansible.builtin.fail:
+        msg: "Invalid IP Address '{{ ip_input.user_input }}' for {{ record_fqdn }}."
+      when: record_ip is not defined
+
+    - name: DNS | Check for duplicate A record FQDN in existing records
+      ansible.builtin.set_fact:
+        a_record_exists: "{{ new_dns_records | selectattr('fqdn', 'equalto', record_fqdn) | list | length > 0 }}"
+      when: record_fqdn is defined
+
+    - name: DNS | Check for duplicate IP in existing A records
+      ansible.builtin.set_fact:
+        ip_already_used_a: "{{ new_dns_records | selectattr('ip', 'equalto', record_ip) | list | length > 0 }}"
+      when: record_ip is defined
+
+    # Prepare PTR record name (reverse of IP)
+    - name: DNS | Prepare PTR record name from IP
+      ansible.builtin.set_fact:
+        ptr_record_name: "{{ record_ip.split('.') | reverse | join('.') | replace('in-addr.arpa', dns_reverse_zone_name) }}"
+      when: record_ip is defined
+
+    - name: DNS | Check for duplicate FQDN in existing PTR records
+      ansible.builtin.set_fact:
+        fqdn_already_used_ptr: "{{ new_ptr_records | selectattr('ptr', 'equalto', record_fqdn) | list | length > 0 }}"
+      when: record_fqdn is defined
+
+    - name: DNS | Check for duplicate IP in existing PTR records
+      ansible.builtin.set_fact:
+        ip_already_used_ptr: "{{ new_ptr_records | selectattr('ip', 'equalto', record_ip) | list | length > 0 }}"
+      when: record_ip is defined
+
+    - name: DNS | Fail if duplicate FQDN for A record detected
+      ansible.builtin.fail:
+        msg: "Duplicate FQDN '{{ record_fqdn }}' found in new records list."
+      when: a_record_exists
+
+    - name: DNS | Fail if duplicate IP for A record detected
+      ansible.builtin.fail:
+        msg: "Duplicate IP Address '{{ record_ip }}' found in new records list for A records."
+      when: ip_already_used_a
+
+    - name: DNS | Fail if duplicate FQDN for PTR record detected
+      ansible.builtin.fail:
+        msg: "Duplicate FQDN '{{ record_fqdn }}' found in new records list for PTR records."
+      when: fqdn_already_used_ptr
+
+    - name: DNS | Fail if duplicate IP for PTR record detected
+      ansible.builtin.fail:
+        msg: "Duplicate IP Address '{{ record_ip }}' found in new records list for PTR records."
+      when: ip_already_used_ptr
+
+    - name: DNS | Add valid record to list (A)
+      ansible.builtin.set_fact:
+        new_dns_records: "{{ new_dns_records + [{ 'fqdn': record_fqdn, 'ip': record_ip }] }}"
+      when: record_fqdn is defined and record_ip is defined
+
+    - name: DNS | Add valid record to list (PTR)
+      ansible.builtin.set_fact:
+        new_ptr_records: "{{ new_ptr_records + [{ 'ptr': record_fqdn, 'ip': record_ip }] }}"
+      when: record_fqdn is defined and record_ip is defined
+
+  rescue: # Catch any task failures within the loop and report
+    - name: DNS | Report loop error
+      ansible.builtin.debug:
+        msg: "Error processing record {{ item_index + 1 }}. Please check input and previous errors."
+
+- name: DNS | Display collected records for confirmation
+  ansible.builtin.debug:
+    var:
+      - new_dns_records
+      - new_ptr_records
+  when: new_dns_records | length > 0 or new_ptr_records | length > 0
+
+- name: DNS | Prompt for final confirmation
+  ansible.builtin.pause:
+    prompt: "Are you sure you want to add these {{ new_dns_records | length }} A records and {{ new_ptr_records | length }} PTR records? (y/n) "
+  register: confirm_add
+  when: new_dns_records | length > 0 or new_ptr_records | length > 0
+
+- name: DNS | Fail if confirmation is not 'y'
+  ansible.builtin.fail:
+    msg: "Operation cancelled by user."
+  when:
+    - confirm_add.user_input | default('') | lower != 'y'
+    - new_dns_records | length > 0 or new_ptr_records | length > 0
+
+# --- Update Zone Files ---
+# Construct A records lines
+- name: DNS | Prepare A record lines
+  ansible.builtin.set_fact:
+    a_record_lines: "{{ new_dns_records | map(attribute='fqdn') | map('regex_replace', '^.*\\.(.+)$', '\\1 IN A \\\\1') | list }}"
+  when: new_dns_records | length > 0
+
+# Construct PTR records lines
+- name: DNS | Prepare PTR record lines
+  ansible.builtin.set_fact:
+    ptr_record_lines: "{{ new_ptr_records | map(attribute='ip') | map('regex_replace', '^(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)$', '\\4 IN PTR \\1.\\2.\\3.\\4.{{ dns_zone_name }}.') | list }}"
+  when: new_ptr_records | length > 0
+
+# Add A records to zone file
+- name: DNS | Add A records to zone file
+  ansible.builtin.lineinfile:
+    path: "{{ dns_docker_project_dir }}/records/{{ dns_zone_file }}"
+    line: "{{ item }}"
+    state: present
+  loop: "{{ a_record_lines }}"
+  when: new_dns_records | length > 0
+
+# Add PTR records to zone file
+- name: DNS | Add PTR records to zone file
+  ansible.builtin.lineinfile:
+    path: "{{ dns_docker_project_dir }}/records/{{ dns_reverse_zone_file }}"
+    line: "{{ item }}"
+    state: present
+  loop: "{{ ptr_record_lines }}"
+  when: new_ptr_records | length > 0
+
+# Update Serial Number and restart BIND
+- name: DNS | Update Serial Number for forward zone
+  ansible.builtin.replace:
+    path: "{{ dns_docker_project_dir }}/records/{{ dns_zone_file }}"
+    regexp: '^( \\s*SOA .*?\\s+)(\\d+)'
+    replace: '\1{{ lookup("pipe", "date +%Y%m%d%H") }}'
+  when: new_dns_records | length > 0
+
+- name: DNS | Update Serial Number for reverse zone
+  ansible.builtin.replace:
+    path: "{{ dns_docker_project_dir }}/records/{{ dns_reverse_zone_file }}"
+    regexp: '^( \\s*SOA .*?\\s+)(\\d+)'
+    replace: '\1{{ lookup("pipe", "date +%Y%m%d%H") }}'
+  when: new_ptr_records | length > 0
+
+- name: DNS | Restart BIND container to apply changes
+  ansible.builtin.command:
+    cmd: docker compose restart
+    chdir: "{{ dns_docker_project_dir }}"
+  when: new_dns_records | length > 0 or new_ptr_records | length > 0
+
+- name: DNS | Display added records
+  ansible.builtin.debug:
+    msg: "Successfully added {{ new_dns_records | length }} A records and {{ new_ptr_records | length }} PTR records."
+  when: new_dns_records | length > 0 or new_ptr_records | length > 0
+
+- name: DNS | Show updated zone file content (first 10 lines)
+  ansible.builtin.command: "head -n 10 {{ dns_docker_project_dir }}/records/{{ dns_zone_file }}"
+  register: updated_zone_content
+  changed_when: false
+  when: new_dns_records | length > 0
+
+- name: DNS | Display updated zone file content
+  ansible.builtin.debug:
+    var: updated_zone_content.stdout_lines
+  when: new_dns_records | length > 0

@@ -1,0 +1,17 @@
+all:
+  children:
+    dns_servers:
+      hosts:
+        dns-master:
+          ansible_host: 192.168.10.19
+          ansible_user: ammi
+          ansible_port: 22
+
+        dns-slave:
+          ansible_host: 192.168.10.18
+          ansible_user: ammi
+          ansible_port: 22
+
+  vars:
+    ansible_ssh_private_key_file: ~/.ssh/id_rsa
+    ansible_python_interpreter: /usr/bin/python3

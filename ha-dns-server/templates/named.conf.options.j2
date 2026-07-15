@@ -1,0 +1,19 @@
+options {
+    directory "/var/cache/bind";
+
+    recursion yes;
+    allow-recursion { 127.0.0.1; {{ dns_network_cidr }}; };
+    allow-query { 127.0.0.1; {{ dns_network_cidr }}; };
+
+    listen-on port 53 { any; };
+    listen-on-v6 { none; };
+
+    forwarders {
+{% for forwarder in dns_forwarders %}
+        {{ forwarder }};
+{% endfor %}
+    };
+
+    dnssec-validation auto;
+    auth-nxdomain no;
+};

@@ -1,0 +1,64 @@
+---
+- name: Ask for primary master DNS server IP
+  ansible.builtin.pause:
+    prompt: "Enter master DNS IP"
+  register: ask_primary_ip
+  changed_when: false
+
+- name: Ask for secondary slave DNS server IP
+  ansible.builtin.pause:
+    prompt: "Enter slave DNS IP"
+  register: ask_secondary_ip
+  changed_when: false
+
+- name: Ask for DNS zone name
+  ansible.builtin.pause:
+    prompt: "Enter DNS zone name"
+  register: ask_zone_name
+  changed_when: false
+
+- name: Ask for reverse zone name
+  ansible.builtin.pause:
+    prompt: "Enter reverse DNS zone name"
+  register: ask_reverse_zone_name
+  changed_when: false
+
+- name: Validate master IP
+  ansible.builtin.fail:
+    msg: "Master IP is invalid"
+  when: not (ask_primary_ip.user_input | trim | ansible.utils.ipaddr)
+
+- name: Validate slave IP
+  ansible.builtin.fail:
+    msg: "Slave IP is invalid"
+  when: not (ask_secondary_ip.user_input | trim | ansible.utils.ipaddr)
+
+- name: Ensure master and slave IP are different
+  ansible.builtin.fail:
+    msg: "Master and Slave IPs must be different"
+  when: ask_primary_ip.user_input | trim == ask_secondary_ip.user_input | trim
+
+- name: Validate zone name not empty
+  ansible.builtin.fail:
+    msg: "Zone name cannot be empty"
+  when: ask_zone_name.user_input | trim == ""
+
+- name: Validate reverse zone name not empty
+  ansible.builtin.fail:
+    msg: "Reverse zone name cannot be empty"
+  when: ask_reverse_zone_name.user_input | trim == ""
+
+- name: Save HA values
+  ansible.builtin.set_fact:
+    global_dns_primary_ip: "{{ ask_primary_ip.user_input | trim }}"
+    global_dns_secondary_ip: "{{ ask_secondary_ip.user_input | trim }}"
+    global_dns_zone_name: "{{ ask_zone_name.user_input | trim }}"
+    global_dns_reverse_zone_name: "{{ ask_reverse_zone_name.user_input | trim }}"
+
+- name: Show selected values
+  ansible.builtin.debug:
+    msg:
+      - "Master DNS: {{ global_dns_primary_ip }}"
+      - "Slave DNS: {{ global_dns_secondary_ip }}"
+      - "Zone: {{ global_dns_zone_name }}"
+      - "Reverse Zone: {{ global_dns_reverse_zone_name }}"

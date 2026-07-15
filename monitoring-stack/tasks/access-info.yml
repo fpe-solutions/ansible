@@ -1,0 +1,10 @@
+---
+- name: Show Grafana and Prometheus access info
+  debug:
+    msg:
+      - "Grafana URL: http://{{ ansible_host | default(inventory_hostname) }}:{{ grafana_port }}"
+      - "Grafana user: admin"
+      - "Grafana password: admin"
+      - "Prometheus URL: http://{{ ansible_host | default(inventory_hostname) }}:{{ prometheus_port }}"
+      - "Prometheus user: none"
+      - "Prometheus password: none"

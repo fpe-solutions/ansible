@@ -1,0 +1,51 @@
+---
+# User for deploy
+custom_vars:
+  user: deploy
+  group: devops
+  timezone: Etc/UTC
+  work_dir: "/opt/infra"
+
+# Network  Interface Vars
+network:
+  interface: "ens33"
+  address: "192.168.107.159/24"
+  gateway: "192.168.107.2"
+  dns: "8.8.8.8"
+
+# Harbor settings
+ip: "192.168.107.159"
+hostname_name: devops
+
+# Repository Addresses
+repos:
+  apt_package: "http://pbr.amertka.com/ubuntu"
+  docker_package: "https://pbr.amertka.com/linux/ubuntu"
+  docker_gpg: "https://pbr.amertka.com/rawhub/"
+  registry: https://pcr.amertka.com
+
+# Required Packages
+packages:
+  - vim
+  - util-linux
+  - sudo
+  - gnupg
+  - curl
+  - dnsutils
+  - unzip
+  - ca-certificates
+  
+# Register Static Records In /etc/hosts
+hosts:
+  devops: "192.168.107.159"
+
+service_vars:
+  filebeat:
+    version: 9.3.1
+  cadvisor:
+    version:
+  fluentd:
+    version:
+  node_exporter:
+    version:
+  network_docker: infra_net

@@ -1,0 +1,55 @@
+# -------------------------------------------------
+# Ask group action
+# -------------------------------------------------
+- name: Ask Preparing Action
+  pause:
+    prompt: |
+      ===================================
+      Select Type of Node:
+
+      1. Install Full Monitoring Stack
+      2. Install Grafana Stack
+      3. Install Promethues Stack
+      4. Show Access Information
+      5. Exit
+
+      Choose action (1-4):
+  register: type_node
+
+- name: Set action fact
+  set_fact:
+    group_action: "{{ type_node.user_input | trim }}"
+
+# -----------------------------
+# Starting Preparing Based On Node
+# -----------------------------
+- name: Preparing Full Monitoring Stack
+  ansible.builtin.include_tasks: full-monitoring.yml
+  when: type_node.user_input | trim == '1'
+
+- name: Preparing Grafana Stack
+  ansible.builtin.include_tasks: grafana-stack.yml
+  when: type_node.user_input | trim == '2'
+
+- name: Preparing Prometheus Stack
+  ansible.builtin.include_tasks: prometheus.yml
+  when: type_node.user_input | trim == '3'
+
+- name: Showing Access Information
+  ansible.builtin.include_tasks: access-info.yml
+  when: type_node.user_input | trim == '4'
+
+- name: Exit
+  debug:
+    msg: "Goodbye!"
+  when: type_node.user_input | trim == '5'
+
+- meta: end_play
+  when: type_node.user_input | trim == ''
+
+  vars:
+    operation_map:
+      '1': 'bastion'
+      '2': 'master'
+      '3': 'worker'
+      '4': 'exit'

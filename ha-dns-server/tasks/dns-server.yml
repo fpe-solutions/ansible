@@ -1,0 +1,188 @@
+---
+- name: DNS | Validate required HA variables
+  ansible.builtin.fail:
+    msg: "dns_primary_ip and dns_secondary_ip must be defined in defaults/main.yml and must be different"
+  when:
+    - dns_primary_ip is not defined or dns_primary_ip | trim == ""
+      or dns_secondary_ip is not defined or dns_secondary_ip | trim == ""
+      or dns_primary_ip == dns_secondary_ip
+
+- name: DNS | Validate current host belongs to configured HA nodes
+  ansible.builtin.fail:
+    msg: "Host {{ inventory_hostname }} with ansible_host={{ ansible_host }} is not one of configured HA nodes: {{ dns_primary_ip }}, {{ dns_secondary_ip }}"
+  when: ansible_host not in [dns_primary_ip, dns_secondary_ip]
+
+- name: DNS | Detect node role
+  ansible.builtin.set_fact:
+    dns_is_primary: "{{ ansible_host == dns_primary_ip }}"
+
+- name: DNS | Show detected node role
+  ansible.builtin.debug:
+    msg: >-
+      Host {{ inventory_hostname }} ({{ ansible_host }}) detected as
+      {{ 'PRIMARY' if dns_is_primary else 'SECONDARY' }}
+
+- name: DNS | Stop systemd-resolved
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: DNS | Stop host DNS services that may occupy port 53
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - bind9
+    - named
+    - dnsmasq
+    - unbound
+  failed_when: false
+
+- name: DNS | Kill any process listening on TCP 53
+  ansible.builtin.shell: |
+    ss -ltnp '( sport = :53 )' | tail -n +2 | awk '{print $NF}' | sed -E 's/.*pid=([0-9]+).*/\1/' | grep -E '^[0-9]+$' | xargs -r kill -9
+  args:
+    executable: /bin/bash
+  failed_when: false
+  changed_when: false
+
+- name: DNS | Kill any process listening on UDP 53
+  ansible.builtin.shell: |
+    ss -lunp '( sport = :53 )' | tail -n +2 | awk '{print $NF}' | sed -E 's/.*pid=([0-9]+).*/\1/' | grep -E '^[0-9]+$' | xargs -r kill -9
+  args:
+    executable: /bin/bash
+  failed_when: false
+  changed_when: false
+
+- name: DNS | Remove resolv.conf symlink or file
+  ansible.builtin.file:
+    path: /etc/resolv.conf
+    state: absent
+  failed_when: false
+
+- name: DNS | Create static resolv.conf
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    content: |
+      nameserver 8.8.8.8
+      nameserver 1.1.1.1
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: DNS | Check who is using TCP/UDP port 53
+  ansible.builtin.shell: |
+    {
+      echo "=== TCP ==="
+      ss -ltnp '( sport = :53 )' || true
+      echo
+      echo "=== UDP ==="
+      ss -lunp '( sport = :53 )' || true
+    }
+  args:
+    executable: /bin/bash
+  register: dns_port_53_status
+  changed_when: false
+  failed_when: false
+
+- name: DNS | Show current port 53 status
+  ansible.builtin.debug:
+    var: dns_port_53_status.stdout_lines
+
+- name: DNS | Fail if port 53 is still occupied
+  ansible.builtin.fail:
+    msg: |
+      Port 53 is still in use on {{ inventory_hostname }} ({{ ansible_host }}).
+      Please free the port before running Docker DNS.
+      Current listeners:
+      {{ dns_port_53_status.stdout }}
+  when: >
+    ('LISTEN' in dns_port_53_status.stdout) or
+    ('UNCONN' in dns_port_53_status.stdout)
+
+- name: DNS | Create project directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ dns_docker_project_dir }}"
+    - "{{ dns_docker_project_dir }}/config"
+    - "{{ dns_docker_project_dir }}/cache"
+    - "{{ dns_docker_project_dir }}/records"
+
+- name: DNS | Render docker compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ dns_docker_project_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: DNS | Render named.conf.options
+  ansible.builtin.template:
+    src: named.conf.options.j2
+    dest: "{{ dns_docker_project_dir }}/config/named.conf.options"
+    mode: "0644"
+
+- name: DNS | Render named.conf.local
+  ansible.builtin.template:
+    src: named.conf.local.j2
+    dest: "{{ dns_docker_project_dir }}/config/named.conf.local"
+    mode: "0644"
+
+- name: DNS | Render forward zone file only on primary
+  ansible.builtin.template:
+    src: db.zone.j2
+    dest: "{{ dns_docker_project_dir }}/config/{{ dns_zone_file }}"
+    mode: "0644"
+  when: dns_is_primary
+
+- name: DNS | Render reverse zone file only on primary
+  ansible.builtin.template:
+    src: db.reverse.j2
+    dest: "{{ dns_docker_project_dir }}/config/{{ dns_reverse_zone_file }}"
+    mode: "0644"
+  when: dns_is_primary
+
+- name: DNS | Remove local zone files on secondary if exist
+  ansible.builtin.file:
+    path: "{{ dns_docker_project_dir }}/config/{{ item }}"
+    state: absent
+  loop:
+    - "{{ dns_zone_file }}"
+    - "{{ dns_reverse_zone_file }}"
+  when: not dns_is_primary
+
+- name: DNS | Pull bind image
+  ansible.builtin.command:
+    cmd: docker compose pull
+    chdir: "{{ dns_docker_project_dir }}"
+  register: dns_compose_pull
+  changed_when: true
+
+- name: DNS | Start or recreate DNS containers
+  ansible.builtin.command:
+    cmd: docker compose up -d --force-recreate
+    chdir: "{{ dns_docker_project_dir }}"
+  register: dns_compose_up
+  changed_when: true
+
+- name: DNS | Show compose output
+  ansible.builtin.debug:
+    var: dns_compose_up.stderr_lines
+
+- name: DNS | Wait for TCP 53 to become available
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 53
+    timeout: 30
+    delay: 2
+    state: started
+
+- name: DNS | Show completion message
+  ansible.builtin.debug:
+    msg: >-
+      DNS server on {{ inventory_hostname }} is configured as
+      {{ 'PRIMARY' if dns_is_primary else 'SECONDARY' }}

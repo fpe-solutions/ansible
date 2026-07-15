@@ -1,0 +1,16 @@
+---
+- name: Configure HA DNS servers
+  hosts: dns_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - defaults/main.yml
+
+  pre_tasks:
+    - name: Welcome
+      ansible.builtin.debug:
+        msg: "✨ HA DNS setup started ✨"
+
+  tasks:
+    - name: Run DNS setup
+      ansible.builtin.include_tasks: tasks/dns-server.yml

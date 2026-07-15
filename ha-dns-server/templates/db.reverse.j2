@@ -1,0 +1,18 @@
+$TTL 86400
+@   IN  SOA ns1.{{ dns_zone_name }}. admin.{{ dns_zone_name }}. (
+        {{ dns_reverse_zone_serial }} ; serial
+        3600
+        1800
+        604800
+        86400
+)
+
+@       IN  NS  ns1.{{ dns_zone_name }}.
+@       IN  NS  ns2.{{ dns_zone_name }}.
+
+{{ dns_primary_ip.split('.')[-1] }}   IN PTR ns1.{{ dns_zone_name }}.
+{{ dns_secondary_ip.split('.')[-1] }} IN PTR ns2.{{ dns_zone_name }}.
+
+{% for record in dns_ptr_records %}
+{{ record.ip.split('.')[-1] }} IN PTR {{ record.name }}.
+{% endfor %}
